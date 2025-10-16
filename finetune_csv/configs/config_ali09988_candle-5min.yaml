@@ -1,72 +1,119 @@
-#This is a template config for custom finetuning kronos on csv data
-#这是一份模板config，用于kronos的csv自定义数据微调
+# ==============================================================================
+# Kronos 金融时间序列模型微调配置文件
+# 用途：基于CSV数据对Kronos模型进行自定义微调
+# 股票：阿里巴巴港股 (09988) 5分钟K线数据
+# ==============================================================================
 
+# 数据配置部分
+# ==============================================================================
 data:
-  data_path: "/xxxx/Kronos/finetune_csv/data/HK_ali_09988_kline_5min_all.csv"
+  # 数据集文件路径 - 指向包含股票历史数据的CSV文件
+  # 格式要求：时间序列数据，包含开盘价、收盘价、最高价、最低价、成交量等
+  data_path: "finetune_csv/data/HK_ali_09988_kline_5min_all.csv"
+  
+  # 回望窗口大小 - 模型用于学习历史模式的过去时间步数
+  # 512表示模型会看过去512个5分钟K线（约42.6小时）来预测未来
   lookback_window: 512
+  
+  # 预测窗口大小 - 模型要预测的未来时间步数
+  # 48表示预测未来48个5分钟K线（4小时）
   predict_window: 48
+  
+  # 最大上下文长度 - Transformer模型的最大序列长度限制
+  # 与lookback_window配合使用，确保不超过模型处理能力
   max_context: 512
+  
+  # 数据裁剪阈值 - 用于处理异常值，限制输入数据的极值范围
+  # 5.0表示将超出均值±5倍标准差的数据裁剪到该范围内
   clip: 5.0
-  # dataset split ratio
-  train_ratio: 0.9
-  val_ratio: 0.1
-  test_ratio: 0.0
+  
+  # 数据集划分比例 - 训练集、验证集、测试集的分配比例
+  # 总和应为1.0，这里90%训练，10%验证，0%测试
+  train_ratio: 0.9    # 训练集比例 - 用于模型参数学习
+  val_ratio: 0.1      # 验证集比例 - 用于超参数调优和早停
+  test_ratio: 0.0     # 测试集比例 - 用于最终模型评估（这里设为0表示不划分测试集）
 
+# 训练配置部分
+# ==============================================================================
 training:
-  # control the training epochs of tokenizer and basemodel
-  tokenizer_epochs: 30
-  basemodel_epochs: 20
-  batch_size: 32
+  # 训练轮数控制 - 分别控制分词器和基础模型的训练周期
+  tokenizer_epochs: 30    # 分词器训练轮数 - 将连续价格数据离散化为tokens
+  basemodel_epochs: 20   # 基础模型训练轮数 - 主要预测模型的训练周期
+  
+  # 批次大小 - 每批处理的样本数量
+  # 32是平衡内存使用和训练效率的常用设置
+  batch_size: 16
+
+  # 梯度累积步数 - 用于处理内存不足时的训练策略
+  # 1表示不累积，实际批次大小 = batch_size × accumulation_steps
+  accumulation_steps: 2
+  
+  # 日志间隔 - 每多少个批次打印一次训练信息
+  # 50表示每50个批次输出一次loss等指标
   log_interval: 50
+  
+  # 工作进程数 - 数据加载的并行进程数
+  # 6表示使用6个CPU核心并行加载数据，提高数据读取效率
   num_workers: 6
+  
+  # 随机种子 - 确保实验可重复性
+  # 固定随机种子使得每次训练结果一致
   seed: 42
   
-  tokenizer_learning_rate: 0.0002
-  predictor_learning_rate: 0.000001
+  # 学习率配置 - 控制模型参数更新的步长
+  tokenizer_learning_rate: 0.0002    # 分词器学习率 - 较高的学习率加快收敛
+  predictor_learning_rate: 0.000001  # 预测器学习率 - 极低的学习率防止过拟合
   
-  adam_beta1: 0.9
-  adam_beta2: 0.95
-  adam_weight_decay: 0.1
-  
-  # gradient accumulation steps for tokenizer training
-  accumulation_steps: 1
+  # Adam优化器参数 - 自适应学习率算法的超参数
+  adam_beta1: 0.9      # 一阶矩衰减系数 - 控制梯度均值衰减速度
+  adam_beta2: 0.95     # 二阶矩衰减系数 - 控制梯度方差衰减速度
+  adam_weight_decay: 0.1  # 权重衰减 - L2正则化，防止过拟合
 
-# model path configuration
+# 模型路径配置部分
+# ==============================================================================
 model_paths:
-  # pretrained model path
-  pretrained_tokenizer: "/xxx/Kronos/pretrained/Kronos-Tokenizer-base"
-  pretrained_predictor: "/xxx/Kronos/pretrained/Kronos-base"
+  # 预训练模型路径 - 微调的基础模型
+  pretrained_tokenizer: "model/tokenizer"  # 预训练分词器
+  pretrained_predictor: "model/kronos-base"          # 预训练预测器
   
-  # experiment name - other paths will be generated based on this
+  # 实验名称 - 所有输出路径的基础命名
+  # 系统会根据这个名称自动生成完整的文件路径
   exp_name: "HK_ali_09988_kline_5min_all"
-  base_path: "/xxx/Kronos/finetune_csv/finetuned/"
-
-  # the following paths will be generated based on exp_name, no need to modify manually
-  # way 1: leave empty string, the system will generate the full path
-  base_save_path: ""  #  /xxxx/Kronos/finetune_csv/finetuned/{exp_name}
-  finetuned_tokenizer: ""  # /xxxx/Kronos/finetune_csv/finetuned/{exp_name}/tokenizer/best_model
   
-  # way 2: use template string, {exp_name} will be replaced with the actual experiment name
+  # 基础保存路径 - 所有实验结果的根目录
+  base_path: "finetune_csv/finetuned"
+  
+  # 输出路径配置 - 支持两种配置方式
+  # 方式1：留空字符串，系统自动生成完整路径
+  base_save_path: "finetune_csv/finetuned/{exp_name}"        # 自动生成：/xxxx/Kronos/finetune_csv/finetuned/{exp_name}
+  finetuned_tokenizer: "finetune_csv/finetuned/{exp_name}/tokenizer/best_model"   # 自动生成：/xxxx/Kronos/finetune_csv/finetuned/{exp_name}/tokenizer/best_model
+  
+  # 方式2：使用模板字符串，{exp_name}会被替换为实际实验名称
   # base_save_path: "/xxxx/Kronos/finetune_csv/finetuned/{exp_name}"
   # finetuned_tokenizer: "/xxxx/Kronos/finetune_csv/finetuned/{exp_name}/tokenizer/best_model"
   
-  tokenizer_save_name: "tokenizer"
-  basemodel_save_name: "basemodel"
+  # 模型保存名称 - 用于标识保存的模型文件
+  tokenizer_save_name: "tokenizer"    # 分词器模型保存名称
+  basemodel_save_name: "basemodel"    # 基础模型保存名称
 
+# 实验配置部分
+# ==============================================================================
 experiment:
-  name: "kronos_custom_finetune"
-  description: "Custom finetune for HK stock data"
-  use_comet: false
+  # 实验基本信息
+  name: "kronos_custom_finetune"                    # 实验名称
+  description: "Custom finetune for HK stock data"  # 实验描述
+  use_comet: false                                  # 是否使用Comet.ml进行实验跟踪
   
-  # control the training phase
-  train_tokenizer: true
-  train_basemodel: true
+  # 训练阶段控制 - 灵活控制训练流程
+  train_tokenizer: true   # 是否训练分词器 - true表示重新训练分词器
+  train_basemodel: true   # 是否训练基础模型 - true表示重新训练预测模型
   
-  # if true, skip the existing model training
+  # 跳过现有模型 - 避免重复训练
+  # true表示如果检测到已训练的模型，则跳过训练阶段
   skip_existing: false
 
-# device configuration
+# 设备配置部分
+# ==============================================================================
 device:
-  use_cuda: true
-  device_id: 0
-  
+  use_cuda: true    # 是否使用CUDA加速 - true表示使用GPU训练
+  device_id: 0      # GPU设备ID - 0表示使用第一块GPU（如有多块GPU可设置1,2,3等）
